@@ -1,0 +1,51 @@
+import os
+import torch
+import numpy as np
+from PIL import Image
+from torchvision import transforms
+from models.experimental import attempt_load
+from utils.general import non_max_suppression
+
+# Define the URL of the GitHub repository and the name of the image folder
+github_url = 'https://github.com/username/repo'
+image_folder = 'images'
+
+# Clone the GitHub repository to a local directory
+os.system(f'git clone {github_url} /tmp/repo')
+
+# Load YOLOv5 model
+model = attempt_load('/tmp/repo/yolov5s.pt', map_location=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
+
+# Load images and calculate accuracy
+accuracy_list = []
+for filename in os.listdir(f'/tmp/repo/{image_folder}'):
+    if filename.endswith('.jpg') or filename.endswith('.png'):
+        # Load image
+        img_path = f'/tmp/repo/{image_folder}/{filename}'
+        img = Image.open(img_path)
+
+        # Apply image transforms
+        img_transforms = transforms.Compose([
+            transforms.Resize((640, 640)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+        img_tensor = img_transforms(img)
+
+        # Make a prediction
+        with torch.no_grad():
+            pred = model(img_tensor.unsqueeze(0).to(torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')))
+
+        # Apply non-maximum suppression to remove overlapping detections
+        pred = non_max_suppression(pred, 0.4, 0.5)
+
+        # Calculate accuracy
+        targets = np.array([[0, 0, 100, 100, 0], [50, 50, 150, 150, 0]])  # Ground-truth boxes (xmin, ymin, xmax, ymax, class)
+        accuracy = model.get_loss(pred, targets, img_tensor.shape[-2:])
+        accuracy_list.append(accuracy.item())
+
+        # Display the result
+        print(f'Image: {filename}, Accuracy: {accuracy.item()}')
+
+# Display the average accuracy
+print(f'Average accuracy: {np.mean(accuracy_list)}')
